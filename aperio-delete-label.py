@@ -184,11 +184,14 @@ def delete_aperio_label(filename):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) != 2:
-        print >>sys.stderr, 'Usage: %s <svs-file>' % sys.argv[0]
+    if len(sys.argv) < 2:
+        print >>sys.stderr, 'Usage: %s <svs-file>...' % sys.argv[0]
         sys.exit(2)
-    try:
-        delete_aperio_label(sys.argv[1])
-    except Exception, e:
-        print >>sys.stderr, str(e)
-        sys.exit(1)
+    exit_code = 0
+    for filename in sys.argv[1:]:
+        try:
+            delete_aperio_label(filename)
+        except Exception, e:
+            print >>sys.stderr, '%s: %s' % (filename, str(e))
+            exit_code = 1
+    sys.exit(exit_code)
