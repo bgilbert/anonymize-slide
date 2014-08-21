@@ -29,14 +29,20 @@ import sys
 PROG_VERSION = '1.0'
 DEBUG = False
 
+# TIFF types
 ASCII = 2
 SHORT = 3
 LONG = 4
+FLOAT = 11
+DOUBLE = 12
 LONG8 = 16
 
+# TIFF tags
 IMAGE_DESCRIPTION = 270
 STRIP_OFFSETS = 273
 STRIP_BYTE_COUNTS = 279
+NDPI_MAGIC = 65420
+NDPI_SOURCELENS = 65421
 
 class UnrecognizedFile(Exception):
     pass
@@ -162,6 +168,10 @@ class TiffEntry(object):
             item_fmt = 'I'
         elif self.type == LONG8:
             item_fmt = 'Q'
+        elif self.type == FLOAT:
+            item_fmt = 'f'
+        elif self.type == DOUBLE:
+            item_fmt = 'd'
         else:
             raise ValueError('Unsupported type')
 
@@ -208,8 +218,25 @@ def do_aperio_svs(filename):
             raise IOError("No label in SVS file")
 
 
+def do_hamamatsu_ndpi(filename):
+    with TiffFile(filename) as fh:
+        # Check for NDPI file
+        if NDPI_MAGIC not in fh.directories[0].entries:
+            raise UnrecognizedFile
+        accept(filename, 'NDPI')
+
+        # Find and delete macro image
+        for directory in fh.directories:
+            if directory.entries[NDPI_SOURCELENS].value()[0] == -1:
+                directory.delete()
+                break
+        else:
+            raise IOError("No label in NDPI file")
+
+
 format_handlers = [
     do_aperio_svs,
+    do_hamamatsu_ndpi,
 ]
 
 

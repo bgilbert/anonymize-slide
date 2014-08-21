@@ -5,6 +5,7 @@ This is a program to remove the slide label from whole-slide images in the
 following formats:
 
  * Aperio SVS
+ * Hamamatsu NDPI
 
 Slide files are modified **in place**, making this program both fast and
 potentially destructive.  Do not run it on your only copy of a slide.
