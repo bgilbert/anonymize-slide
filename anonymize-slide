@@ -102,13 +102,33 @@ class TiffFile(file):
 
 class TiffDirectory(object):
     def __init__(self, fh, in_pointer_offset):
-        self.in_pointer_offset = in_pointer_offset
         self.entries = {}
         count = fh.read_fmt('Y')
         for _ in range(count):
             entry = TiffEntry(fh)
             self.entries[entry.tag] = entry
-        self.out_pointer_offset = fh.tell()
+        self._in_pointer_offset = in_pointer_offset
+        self._out_pointer_offset = fh.tell()
+        self._fh = fh
+
+    def delete(self):
+        # Get strip offsets/lengths
+        try:
+            offsets = self.entries[STRIP_OFFSETS].value()
+            lengths = self.entries[STRIP_BYTE_COUNTS].value()
+        except KeyError:
+            raise IOError('Directory is not stripped')
+
+        # Wipe strips
+        for offset, length in zip(offsets, lengths):
+            self._fh.seek(offset)
+            self._fh.write('\0' * length)
+
+        # Remove directory
+        self._fh.seek(self._out_pointer_offset)
+        out_pointer = self._fh.read_fmt('Z')
+        self._fh.seek(self._in_pointer_offset)
+        self._fh.write_fmt('Z', out_pointer)
 
 
 class TiffEntry(object):
@@ -163,23 +183,8 @@ def delete_aperio_label(filename):
                 # Not the label
                 continue
 
-            # Get strip offsets/lengths
-            try:
-                offsets = directory.entries[STRIP_OFFSETS].value()
-                lengths = directory.entries[STRIP_BYTE_COUNTS].value()
-            except KeyError:
-                raise IOError('Label is not stripped')
-
-            # Wipe strips
-            for offset, length in zip(offsets, lengths):
-                fh.seek(offset)
-                fh.write('\0' * length)
-
             # Delete directory
-            fh.seek(directory.out_pointer_offset)
-            out_pointer = fh.read_fmt('Z')
-            fh.seek(directory.in_pointer_offset)
-            fh.write_fmt('Z', out_pointer)
+            directory.delete()
 
             # Done
             break
