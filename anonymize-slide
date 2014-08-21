@@ -59,7 +59,7 @@ class TiffFile(file):
         elif endian == 'MM':
             self._fmt_prefix = '>'
         else:
-            raise IOError('Not a TIFF file')
+            raise UnrecognizedFile
 
         # Check TIFF version
         self._bigtiff = False
@@ -70,9 +70,9 @@ class TiffFile(file):
             self._bigtiff = True
             magic2, reserved = self.read_fmt('HH')
             if magic2 != 8 or reserved != 0:
-                raise IOError('Bad BigTIFF header')
+                raise UnrecognizedFile
         else:
-            raise IOError('Not a TIFF file')
+            raise UnrecognizedFile
 
         # Read directories
         self.directories = []
