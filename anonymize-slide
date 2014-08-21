@@ -1,6 +1,6 @@
 #!/usr/bin/python
 #
-#  Delete the label image from an Aperio SVS file.
+#  anonymize-slide - Delete the label from a whole-slide image.
 #
 #  Copyright (c) 2012-2013 Carnegie Mellon University
 #  All rights reserved.
