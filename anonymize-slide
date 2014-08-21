@@ -3,6 +3,7 @@
 #  anonymize-slide - Delete the label from a whole-slide image.
 #
 #  Copyright (c) 2012-2013 Carnegie Mellon University
+#  Copyright (c) 2014      Benjamin Gilbert
 #  All rights reserved.
 #
 #  This program is free software: you can redistribute it and/or modify
@@ -36,6 +37,10 @@ LONG8 = 16
 IMAGE_DESCRIPTION = 270
 STRIP_OFFSETS = 273
 STRIP_BYTE_COUNTS = 279
+
+class UnrecognizedFile(Exception):
+    pass
+
 
 class TiffFile(file):
     def __init__(self, path):
@@ -74,6 +79,8 @@ class TiffFile(file):
             directory = TiffDirectory(self, len(self.directories),
                     in_pointer_offset)
             self.directories.append(directory)
+        if not self.directories:
+            raise IOError('No directories')
 
     def _convert_format(self, fmt):
         # Format strings can have special characters:
@@ -175,29 +182,35 @@ class TiffEntry(object):
             return items
 
 
-def delete_aperio_label(filename):
+def accept(filename, format):
+    if DEBUG:
+        print filename + ':', format
+
+
+def do_aperio_svs(filename):
     with TiffFile(filename) as fh:
+        # Check for SVS file
+        try:
+            desc0 = fh.directories[0].entries[IMAGE_DESCRIPTION].value()
+            if not desc0.startswith('Aperio'):
+                raise UnrecognizedFile
+        except KeyError:
+            raise UnrecognizedFile
+        accept(filename, 'SVS')
+
+        # Find and delete label
         for directory in fh.directories:
-            # Check ImageDescription
-            try:
-                desc = directory.entries[IMAGE_DESCRIPTION].value()
-            except KeyError:
-                continue
-            if not desc.startswith('Aperio'):
-                # Not an Aperio directory
-                continue
-            lines = desc.splitlines()
-            if len(lines) < 2 or not lines[1].startswith('label '):
-                # Not the label
-                continue
-
-            # Delete directory
-            directory.delete()
-
-            # Done
-            break
+            lines = directory.entries[IMAGE_DESCRIPTION].value().splitlines()
+            if len(lines) >= 2 and lines[1].startswith('label '):
+                directory.delete()
+                break
         else:
-            raise IOError("Couldn't find Aperio label directory")
+            raise IOError("No label in SVS file")
+
+
+format_handlers = [
+    do_aperio_svs,
+]
 
 
 def _main():
@@ -215,7 +228,14 @@ def _main():
     exit_code = 0
     for filename in args:
         try:
-            delete_aperio_label(filename)
+            for handler in format_handlers:
+                try:
+                    handler(filename)
+                    break
+                except UnrecognizedFile:
+                    pass
+            else:
+                raise IOError('Unrecognized file type')
         except Exception, e:
             if DEBUG:
                 raise
