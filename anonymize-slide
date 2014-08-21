@@ -20,9 +20,12 @@
 #  Boston, MA 02110-1301 USA.
 #
 
+from optparse import OptionParser
 import string
 import struct
 import sys
+
+PROG_VERSION = '1.0'
 
 ASCII = 2
 SHORT = 3
@@ -184,15 +187,22 @@ def delete_aperio_label(filename):
             raise IOError("Couldn't find Aperio label directory")
 
 
-if __name__ == '__main__':
-    if len(sys.argv) < 2:
-        print >>sys.stderr, 'Usage: %s <svs-file>...' % sys.argv[0]
-        sys.exit(2)
+def _main():
+    parser = OptionParser(usage='%prog [options] file [file...]',
+            version=PROG_VERSION)
+    opts, args = parser.parse_args()
+    if not args:
+        parser.error('specify a file')
+
     exit_code = 0
-    for filename in sys.argv[1:]:
+    for filename in args:
         try:
             delete_aperio_label(filename)
         except Exception, e:
             print >>sys.stderr, '%s: %s' % (filename, str(e))
             exit_code = 1
     sys.exit(exit_code)
+
+
+if __name__ == '__main__':
+    _main()
