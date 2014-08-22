@@ -47,6 +47,10 @@ STRIP_BYTE_COUNTS = 279
 NDPI_MAGIC = 65420
 NDPI_SOURCELENS = 65421
 
+# Image strip headers
+LZW_CLEARCODE = '\x80'
+JPEG_SOI = '\xff\xd8'
+
 class UnrecognizedFile(Exception):
     pass
 
@@ -131,7 +135,7 @@ class TiffDirectory(object):
         self._fh = fh
         self._number = number
 
-    def delete(self):
+    def delete(self, expected_prefix=None):
         # Get strip offsets/lengths
         try:
             offsets = self.entries[STRIP_OFFSETS].value()
@@ -144,6 +148,11 @@ class TiffDirectory(object):
             if DEBUG:
                 print 'Zeroing', offset, 'for', length
             self._fh.seek(offset)
+            if expected_prefix:
+                buf = self._fh.read(len(expected_prefix))
+                if buf != expected_prefix:
+                    raise IOError('Unexpected data in image strip')
+                self._fh.seek(offset)
             self._fh.write('\0' * length)
 
         # Remove directory
@@ -215,7 +224,7 @@ def do_aperio_svs(filename):
         for directory in fh.directories:
             lines = directory.entries[IMAGE_DESCRIPTION].value().splitlines()
             if len(lines) >= 2 and lines[1].startswith('label '):
-                directory.delete()
+                directory.delete(expected_prefix=LZW_CLEARCODE)
                 break
         else:
             raise IOError("No label in SVS file")
@@ -231,7 +240,7 @@ def do_hamamatsu_ndpi(filename):
         # Find and delete macro image
         for directory in fh.directories:
             if directory.entries[NDPI_SOURCELENS].value()[0] == -1:
-                directory.delete()
+                directory.delete(expected_prefix=JPEG_SOI)
                 break
         else:
             raise IOError("No label in NDPI file")
