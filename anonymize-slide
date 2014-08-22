@@ -26,6 +26,9 @@ import string
 import struct
 import sys
 
+PROG_DESCRIPTION = '''
+Delete the slide label from an SVS or NDPI whole-slide image.
+'''.strip()
 PROG_VERSION = '1.0'
 DEBUG = False
 
@@ -244,7 +247,7 @@ def _main():
     global DEBUG
 
     parser = OptionParser(usage='%prog [options] file [file...]',
-            version=PROG_VERSION)
+            description=PROG_DESCRIPTION, version=PROG_VERSION)
     parser.add_option('-d', '--debug', action='store_true',
             help='Enable debugging')
     opts, args = parser.parse_args()
