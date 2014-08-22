@@ -57,7 +57,7 @@ class UnrecognizedFile(Exception):
 
 
 class TiffFile(file):
-    def __init__(self, path, ndpi=False):
+    def __init__(self, path):
         file.__init__(self, path, 'r+b')
 
         # Check header, decide endianness
@@ -74,7 +74,7 @@ class TiffFile(file):
         self._ndpi = False
         version = self.read_fmt('H')
         if version == 42:
-            self._ndpi = ndpi
+            pass
         elif version == 43:
             self._bigtiff = True
             magic2, reserved = self.read_fmt('HH')
@@ -93,6 +93,14 @@ class TiffFile(file):
             self.seek(directory_offset)
             directory = TiffDirectory(self, len(self.directories),
                     in_pointer_offset)
+            if not self.directories and not self._bigtiff:
+                # Check for NDPI.  Because we don't know we have an NDPI file
+                # until after reading the first directory, we will choke if
+                # the first directory is beyond 4 GB.
+                if NDPI_MAGIC in directory.entries:
+                    if DEBUG:
+                        print 'Enabling NDPI mode.'
+                    self._ndpi = True
             self.directories.append(directory)
         if not self.directories:
             raise IOError('No directories')
@@ -246,7 +254,7 @@ def do_aperio_svs(filename):
 
 
 def do_hamamatsu_ndpi(filename):
-    with TiffFile(filename, ndpi=True) as fh:
+    with TiffFile(filename) as fh:
         # Check for NDPI file
         if NDPI_MAGIC not in fh.directories[0].entries:
             raise UnrecognizedFile
@@ -262,8 +270,8 @@ def do_hamamatsu_ndpi(filename):
 
 
 format_handlers = [
-    do_hamamatsu_ndpi,
     do_aperio_svs,
+    do_hamamatsu_ndpi,
 ]
 
 
