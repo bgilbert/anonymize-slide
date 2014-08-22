@@ -21,6 +21,7 @@
 #  Boston, MA 02110-1301 USA.
 #
 
+from __future__ import division
 from optparse import OptionParser
 import string
 import struct
@@ -56,7 +57,7 @@ class UnrecognizedFile(Exception):
 
 
 class TiffFile(file):
-    def __init__(self, path):
+    def __init__(self, path, ndpi=False):
         file.__init__(self, path, 'r+b')
 
         # Check header, decide endianness
@@ -70,9 +71,10 @@ class TiffFile(file):
 
         # Check TIFF version
         self._bigtiff = False
+        self._ndpi = False
         version = self.read_fmt('H')
         if version == 42:
-            pass
+            self._ndpi = ndpi
         elif version == 43:
             self._bigtiff = True
             magic2, reserved = self.read_fmt('HH')
@@ -85,7 +87,7 @@ class TiffFile(file):
         self.directories = []
         while True:
             in_pointer_offset = self.tell()
-            directory_offset = self.read_fmt('Z')
+            directory_offset = self.read_fmt('D')
             if directory_offset == 0:
                 break
             self.seek(directory_offset)
@@ -101,14 +103,26 @@ class TiffFile(file):
         # Y: 16-bit unsigned on little TIFF, 64-bit unsigned on BigTIFF
         # z: 32-bit   signed on little TIFF, 64-bit   signed on BigTIFF
         # Z: 32-bit unsigned on little TIFF, 64-bit unsigned on BigTIFF
+        # D: 32-bit unsigned on little TIFF, 64-bit unsigned on BigTIFF/NDPI
         if self._bigtiff:
-            fmt = fmt.translate(string.maketrans('yYzZ', 'qQqQ'))
+            fmt = fmt.translate(string.maketrans('yYzZD', 'qQqQQ'))
+        elif self._ndpi:
+            fmt = fmt.translate(string.maketrans('yYzZD', 'hHiIQ'))
         else:
-            fmt = fmt.translate(string.maketrans('yYzZ', 'hHiI'))
+            fmt = fmt.translate(string.maketrans('yYzZD', 'hHiII'))
         return self._fmt_prefix + fmt
 
     def fmt_size(self, fmt):
         return struct.calcsize(self._convert_format(fmt))
+
+    def near_pointer(self, base, offset):
+        # If NDPI, return the value whose low-order 32-bits are equal to
+        # @offset and which is within 4 GB of @base and below it.
+        # Otherwise, return offset.
+        if self._ndpi and offset < base:
+            seg_size = 1 << 32
+            offset += ((base - offset) // seg_size) * seg_size
+        return offset
 
     def read_fmt(self, fmt, force_list=False):
         fmt = self._convert_format(fmt)
@@ -145,6 +159,7 @@ class TiffDirectory(object):
 
         # Wipe strips
         for offset, length in zip(offsets, lengths):
+            offset = self._fh.near_pointer(self._out_pointer_offset, offset)
             if DEBUG:
                 print 'Zeroing', offset, 'for', length
             self._fh.seek(offset)
@@ -159,9 +174,9 @@ class TiffDirectory(object):
         if DEBUG:
             print 'Deleting directory', self._number
         self._fh.seek(self._out_pointer_offset)
-        out_pointer = self._fh.read_fmt('Z')
+        out_pointer = self._fh.read_fmt('D')
         self._fh.seek(self._in_pointer_offset)
-        self._fh.write_fmt('Z', out_pointer)
+        self._fh.write_fmt('D', out_pointer)
 
 
 class TiffEntry(object):
@@ -194,7 +209,7 @@ class TiffEntry(object):
             self._fh.seek(self.start + self._fh.fmt_size('HHZ'))
         else:
             # Out-of-line value
-            self._fh.seek(self.value_offset)
+            self._fh.seek(self._fh.near_pointer(self.start, self.value_offset))
         items = self._fh.read_fmt(fmt, force_list=True)
         if self.type == ASCII:
             if items[-1] != '\0':
@@ -231,7 +246,7 @@ def do_aperio_svs(filename):
 
 
 def do_hamamatsu_ndpi(filename):
-    with TiffFile(filename) as fh:
+    with TiffFile(filename, ndpi=True) as fh:
         # Check for NDPI file
         if NDPI_MAGIC not in fh.directories[0].entries:
             raise UnrecognizedFile
@@ -247,8 +262,8 @@ def do_hamamatsu_ndpi(filename):
 
 
 format_handlers = [
-    do_aperio_svs,
     do_hamamatsu_ndpi,
+    do_aperio_svs,
 ]
 
 
