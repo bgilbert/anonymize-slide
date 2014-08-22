@@ -1,6 +1,6 @@
 #!/usr/bin/python
 #
-#  anonymize-slide - Delete the label from a whole-slide image.
+#  anonymize-slide.py - Delete the label from a whole-slide image.
 #
 #  Copyright (c) 2012-2013 Carnegie Mellon University
 #  Copyright (c) 2014      Benjamin Gilbert
