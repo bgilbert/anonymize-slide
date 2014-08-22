@@ -15,7 +15,7 @@ potentially destructive.  Do not run it on your only copy of a slide.
 Usage
 -----
 
-    anonymize-slide slide [slide...]
+    anonymize-slide.py slide [slide...]
 
 Requirements
 ------------
