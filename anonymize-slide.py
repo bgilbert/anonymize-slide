@@ -321,14 +321,22 @@ class MrxsFile(object):
     def _zero_record(self, record):
         path, offset, length = self._get_data_location(record)
         with open(path, 'r+b') as fh:
+            fh.seek(0, 2)
+            do_truncate = (fh.tell() == offset + length)
             if DEBUG:
-                print 'Zeroing', path, 'at', offset, 'for', length
+                if do_truncate:
+                    print 'Truncating', path, 'to', offset
+                else:
+                    print 'Zeroing', path, 'at', offset, 'for', length
             fh.seek(offset)
             buf = fh.read(len(JPEG_SOI))
             if buf != JPEG_SOI:
                 raise IOError('Unexpected data in nonhier image')
-            fh.seek(offset)
-            fh.write('\0' * length)
+            if do_truncate:
+                fh.truncate(offset)
+            else:
+                fh.seek(offset)
+                fh.write('\0' * length)
 
     def _delete_index_record(self, record):
         if DEBUG:
