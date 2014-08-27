@@ -525,7 +525,7 @@ def _main():
     parser = OptionParser(usage='%prog [options] file [file...]',
             description=PROG_DESCRIPTION, version=PROG_VERSION)
     parser.add_option('-d', '--debug', action='store_true',
-            help='Enable debugging')
+            help='show debugging information')
     opts, args = parser.parse_args()
     if not args:
         parser.error('specify a file')
