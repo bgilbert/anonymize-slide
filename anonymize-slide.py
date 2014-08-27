@@ -34,7 +34,7 @@ import sys
 PROG_DESCRIPTION = '''
 Delete the slide label from an SVS or NDPI whole-slide image.
 '''.strip()
-PROG_VERSION = '1.0'
+PROG_VERSION = '1.1'
 DEBUG = False
 
 # TIFF types
