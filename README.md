@@ -6,6 +6,7 @@ following formats:
 
  * Aperio SVS
  * Hamamatsu NDPI
+ * 3DHISTECH MRXS
 
 Slide files are modified **in place**, making this program both fast and
 potentially destructive.  Do not run it on your only copy of a slide.
