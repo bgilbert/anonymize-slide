@@ -13,10 +13,16 @@ potentially destructive.  Do not run it on your only copy of a slide.
 
 [Download](https://github.com/bgilbert/anonymize-slide/releases)
 
-Usage
------
+Examples
+--------
 
-    anonymize-slide.py slide [slide...]
+Delete the label from `slide.mrxs`:
+
+    anonymize-slide.py slide.mrxs
+
+Delete the label from all NDPI files in the current directory:
+
+    anonymize-slide.py *.ndpi
 
 Requirements
 ------------
