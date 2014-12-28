@@ -25,6 +25,7 @@
 from __future__ import division
 from ConfigParser import RawConfigParser
 from cStringIO import StringIO
+from glob import glob
 from optparse import OptionParser
 import os
 import string
@@ -34,7 +35,7 @@ import sys
 PROG_DESCRIPTION = '''
 Delete the slide label from an SVS or NDPI whole-slide image.
 '''.strip()
-PROG_VERSION = '1.1'
+PROG_VERSION = '1.1.1'
 DEBUG = False
 
 # TIFF types
@@ -531,8 +532,16 @@ def _main():
         parser.error('specify a file')
     DEBUG = opts.debug
 
+    if sys.platform == 'win32':
+        # The shell expects us to do wildcard expansion
+        filenames = []
+        for arg in args:
+            filenames.extend(glob(arg) or [arg])
+    else:
+        filenames = args
+
     exit_code = 0
-    for filename in args:
+    for filename in filenames:
         try:
             for handler in format_handlers:
                 try:
