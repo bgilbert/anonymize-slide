@@ -33,7 +33,7 @@ import struct
 import sys
 
 PROG_DESCRIPTION = '''
-Delete the slide label from an SVS or NDPI whole-slide image.
+Delete the slide label from an MRXS, NDPI, or SVS whole-slide image.
 '''.strip()
 PROG_VERSION = '1.1.1'
 DEBUG = False
