@@ -479,13 +479,17 @@ def do_aperio_svs(filename):
             raise UnrecognizedFile
         accept(filename, 'SVS')
 
+        deleted = False
+
         # Find and delete label
         for directory in fh.directories:
             lines = directory.entries[IMAGE_DESCRIPTION].value().splitlines()
-            if len(lines) >= 2 and lines[1].startswith('label '):
-                directory.delete(expected_prefix=LZW_CLEARCODE)
-                break
-        else:
+            print(lines)
+            if len(lines) >= 2 and (lines[1].startswith('label') or lines[1].startswith('macro') or lines[1].startswith('thumbnail')) : 
+                directory.delete(expected_prefix=None)
+                deleted = True
+
+        if not deleted :
             raise IOError("No label in SVS file")
 
 
