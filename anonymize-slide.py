@@ -229,6 +229,7 @@ class TiffEntry(object):
         else:
             # Out-of-line value
             self._fh.seek(self._fh.near_pointer(self.start, self.value_offset))
+        self.realstart = self._fh.tell()
         items = self._fh.read_fmt(fmt, force_list=True)
         if self.type == ASCII:
             if items[-1] != '\0':
@@ -236,7 +237,11 @@ class TiffEntry(object):
             return ''.join(items[:-1])
         else:
             return items
-
+	
+    def spaceout(self, position, length):
+        self._fh.seek(self.realstart + position)
+        self._fh.write(' ' * length)
+		
 
 class MrxsFile(object):
     def __init__(self, filename):
@@ -488,6 +493,35 @@ def do_aperio_svs(filename):
         else:
             raise IOError("No label in SVS file")
 
+def do_philips_tif(filename):
+    with TiffFile(filename) as fh:
+        # Check for TIF file
+        try:
+            desc0 = fh.directories[0].entries[IMAGE_DESCRIPTION].value()
+        except KeyError:
+            raise UnrecognizedFile
+
+        # Find and delete labels
+        found=False
+        for directory in fh.directories:
+            desc = directory.entries[IMAGE_DESCRIPTION].value()
+            if desc.find("LABELIMAGE") != -1:
+				pos = desc.find('<DataObject ObjectType="DPScannedImage">')
+				while pos != -1:
+					endpos=desc.find("</DataObject", pos)+len("</DataObject>")
+					labelpos = desc.find("LABELIMAGE")
+					if (labelpos < endpos and labelpos > pos):
+						print "found it at %d"%pos
+						directory.entries[IMAGE_DESCRIPTION].spaceout(pos, endpos-pos)
+						found=True
+					pos = desc.find('<DataObject ObjectType="DPScannedImage">', endpos)
+            if desc == "Label":
+                print "found label"
+                directory.delete()
+                found=True
+        else:
+            if not found:
+                raise IOError("No label in Philips TIFF file")
 
 def do_hamamatsu_ndpi(filename):
     with TiffFile(filename) as fh:
@@ -514,6 +548,7 @@ def do_3dhistech_mrxs(filename):
 
 
 format_handlers = [
+	do_philips_tif,
     do_aperio_svs,
     do_hamamatsu_ndpi,
     do_3dhistech_mrxs,
