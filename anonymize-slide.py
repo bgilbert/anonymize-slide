@@ -22,9 +22,9 @@
 #  Boston, MA 02110-1301 USA.
 #
 
-from __future__ import division
-from ConfigParser import RawConfigParser
-from cStringIO import StringIO
+
+from configparser import RawConfigParser
+from io import StringIO
 from glob import glob
 from optparse import OptionParser
 import os
@@ -110,7 +110,7 @@ class TiffFile(file):
                 # the first directory is beyond 4 GB.
                 if NDPI_MAGIC in directory.entries:
                     if DEBUG:
-                        print 'Enabling NDPI mode.'
+                        print('Enabling NDPI mode.')
                     self._ndpi = True
             self.directories.append(directory)
         if not self.directories:
@@ -180,7 +180,7 @@ class TiffDirectory(object):
         for offset, length in zip(offsets, lengths):
             offset = self._fh.near_pointer(self._out_pointer_offset, offset)
             if DEBUG:
-                print 'Zeroing', offset, 'for', length
+                print('Zeroing', offset, 'for', length)
             self._fh.seek(offset)
             if expected_prefix:
                 buf = self._fh.read(len(expected_prefix))
@@ -191,7 +191,7 @@ class TiffDirectory(object):
 
         # Remove directory
         if DEBUG:
-            print 'Deleting directory', self._number
+            print('Deleting directory', self._number)
         self._fh.seek(self._out_pointer_offset)
         out_pointer = self._fh.read_fmt('D')
         self._fh.seek(self._in_pointer_offset)
@@ -326,9 +326,9 @@ class MrxsFile(object):
             do_truncate = (fh.tell() == offset + length)
             if DEBUG:
                 if do_truncate:
-                    print 'Truncating', path, 'to', offset
+                    print('Truncating', path, 'to', offset)
                 else:
-                    print 'Zeroing', path, 'at', offset, 'for', length
+                    print('Zeroing', path, 'at', offset, 'for', length)
             fh.seek(offset)
             buf = fh.read(len(JPEG_SOI))
             if buf != JPEG_SOI:
@@ -341,7 +341,7 @@ class MrxsFile(object):
 
     def _delete_index_record(self, record):
         if DEBUG:
-            print 'Deleting record', record
+            print('Deleting record', record)
         with open(self._indexfile, 'r+b') as fh:
             entries_to_move = len(self._level_list) - record - 1
             if entries_to_move == 0:
@@ -368,35 +368,35 @@ class MrxsFile(object):
     def _rename_section(self, old, new):
         if self._dat.has_section(old):
             if DEBUG:
-                print '[%s] -> [%s]' % (old, new)
+                print('[%s] -> [%s]' % (old, new))
             self._dat.add_section(new)
             for k, v in self._dat.items(old):
                 self._dat.set(new, k, v)
             self._dat.remove_section(old)
         elif DEBUG:
-            print '[%s] does not exist' % old
+            print('[%s] does not exist' % old)
 
     def _delete_section(self, section):
         if DEBUG:
-            print 'Deleting [%s]' % section
+            print('Deleting [%s]' % section)
         self._dat.remove_section(section)
 
     def _set_key(self, section, key, value):
         if DEBUG:
             prev = self._dat.get(section, key)
-            print '[%s] %s: %s -> %s' % (section, key, prev, value)
+            print('[%s] %s: %s -> %s' % (section, key, prev, value))
         self._dat.set(section, key, value)
 
     def _rename_key(self, section, old, new):
         if DEBUG:
-            print '[%s] %s -> %s' % (section, old, new)
+            print('[%s] %s -> %s' % (section, old, new))
         v = self._dat.get(section, old)
         self._dat.remove_option(section, old)
         self._dat.set(section, new, v)
 
     def _delete_key(self, section, key):
         if DEBUG:
-            print 'Deleting [%s] %s' % (section, key)
+            print('Deleting [%s] %s' % (section, key))
         self._dat.remove_option(section, key)
 
     def _write(self):
@@ -465,7 +465,7 @@ class MrxsNonHierLevel(object):
 
 def accept(filename, format):
     if DEBUG:
-        print filename + ':', format
+        print(filename + ':', format)
 
 
 def do_aperio_svs(filename):
@@ -551,10 +551,10 @@ def _main():
                     pass
             else:
                 raise IOError('Unrecognized file type')
-        except Exception, e:
+        except Exception as e:
             if DEBUG:
                 raise
-            print >>sys.stderr, '%s: %s' % (filename, str(e))
+            sys.stderr.write('%s: %s %s' % (filename, str(e), os.linesep))
             exit_code = 1
     sys.exit(exit_code)
 
