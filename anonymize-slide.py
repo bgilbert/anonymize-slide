@@ -24,7 +24,7 @@
 
 
 from configparser import RawConfigParser
-from io import StringIO
+import io
 from glob import glob
 from optparse import OptionParser
 import os
@@ -54,9 +54,9 @@ NDPI_MAGIC = 65420
 NDPI_SOURCELENS = 65421
 
 # Format headers
-LZW_CLEARCODE = '\x80'
-JPEG_SOI = '\xff\xd8'
-UTF8_BOM = '\xef\xbb\xbf'
+LZW_CLEARCODE = b'\x80'
+JPEG_SOI = b'\xff\xd8'
+UTF8_BOM = b'\xef\xbb\xbf'
 
 # MRXS
 MRXS_HIERARCHICAL = 'HIERARCHICAL'
@@ -67,15 +67,20 @@ class UnrecognizedFile(Exception):
     pass
 
 
-class TiffFile(file):
+class TiffFile(object):
     def __init__(self, path):
-        file.__init__(self, path, 'r+b')
+        mode = 'r+b'
+        self.file = io.open(path, mode)
+        self.close_file = (self.file is not path)
 
         # Check header, decide endianness
-        endian = self.read(2)
-        if endian == 'II':
+        endian = self.file.read(2)
+        endianII = bytes('II',  'utf-8')
+        endianMM = bytes('MM',  'utf-8')
+
+        if endian == endianII:
             self._fmt_prefix = '<'
-        elif endian == 'MM':
+        elif endian == endianMM:
             self._fmt_prefix = '>'
         else:
             raise UnrecognizedFile
@@ -97,11 +102,11 @@ class TiffFile(file):
         # Read directories
         self.directories = []
         while True:
-            in_pointer_offset = self.tell()
+            in_pointer_offset = self.file.tell()
             directory_offset = self.read_fmt('D')
             if directory_offset == 0:
                 break
-            self.seek(directory_offset)
+            self.file.seek(directory_offset)
             directory = TiffDirectory(self, len(self.directories),
                     in_pointer_offset)
             if not self.directories and not self._bigtiff:
@@ -116,6 +121,27 @@ class TiffFile(file):
         if not self.directories:
             raise IOError('No directories')
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args, **kwargs):
+        if (not self.close_file):
+            return  # do nothing
+        # clean up
+        exit = getattr(self.file, '__exit__', None)
+        if exit is not None:
+            return exit(*args, **kwargs)
+        else:
+            exit = getattr(self.file, 'close', None)
+            if exit is not None:
+                exit()
+
+    def __getattr__(self, attr):
+        return getattr(self.file, attr)
+
+    def __iter__(self):
+        return iter(self.file)
+
     def _convert_format(self, fmt):
         # Format strings can have special characters:
         # y: 16-bit   signed on little TIFF, 64-bit   signed on BigTIFF
@@ -124,11 +150,11 @@ class TiffFile(file):
         # Z: 32-bit unsigned on little TIFF, 64-bit unsigned on BigTIFF
         # D: 32-bit unsigned on little TIFF, 64-bit unsigned on BigTIFF/NDPI
         if self._bigtiff:
-            fmt = fmt.translate(string.maketrans('yYzZD', 'qQqQQ'))
+            fmt = fmt.translate(str.maketrans('yYzZD', 'qQqQQ'))
         elif self._ndpi:
-            fmt = fmt.translate(string.maketrans('yYzZD', 'hHiIQ'))
+            fmt = fmt.translate(str.maketrans('yYzZD', 'hHiIQ'))
         else:
-            fmt = fmt.translate(string.maketrans('yYzZD', 'hHiII'))
+            fmt = fmt.translate(str.maketrans('yYzZD', 'hHiII'))
         return self._fmt_prefix + fmt
 
     def fmt_size(self, fmt):
@@ -183,24 +209,25 @@ class TiffDirectory(object):
                 print('Zeroing', offset, 'for', length)
             self._fh.seek(offset)
             if expected_prefix:
-                buf = self._fh.read(len(expected_prefix))
+                buf = self._fh.file.read(len(expected_prefix))
                 if buf != expected_prefix:
                     raise IOError('Unexpected data in image strip')
-                self._fh.seek(offset)
-            self._fh.write('\0' * length)
+                self._fh.file.seek(offset)
+            write_byte = b'\0'
+            self._fh.file.write(write_byte * length)
 
         # Remove directory
         if DEBUG:
             print('Deleting directory', self._number)
-        self._fh.seek(self._out_pointer_offset)
+        self._fh.file.seek(self._out_pointer_offset)
         out_pointer = self._fh.read_fmt('D')
-        self._fh.seek(self._in_pointer_offset)
+        self._fh.file.seek(self._in_pointer_offset)
         self._fh.write_fmt('D', out_pointer)
 
 
 class TiffEntry(object):
     def __init__(self, fh):
-        self.start = fh.tell()
+        self.start = fh.file.tell()
         self.tag, self.type, self.count, self.value_offset = \
                 fh.read_fmt('HHZZ')
         self._fh = fh
@@ -225,15 +252,16 @@ class TiffEntry(object):
         len = self._fh.fmt_size(fmt)
         if len <= self._fh.fmt_size('Z'):
             # Inline value
-            self._fh.seek(self.start + self._fh.fmt_size('HHZ'))
+            self._fh.file.seek(self.start + self._fh.fmt_size('HHZ'))
         else:
             # Out-of-line value
-            self._fh.seek(self._fh.near_pointer(self.start, self.value_offset))
+            self._fh.file.seek(self._fh.near_pointer(self.start, self.value_offset))
         items = self._fh.read_fmt(fmt, force_list=True)
         if self.type == ASCII:
-            if items[-1] != '\0':
+            utf8_zero = bytes('\0', 'utf-8')
+            if items[-1] != utf8_zero:
                 raise ValueError('String not null-terminated')
-            return ''.join(items[:-1])
+            return b''.join(items[:-1])
         else:
             return items
 
@@ -473,7 +501,8 @@ def do_aperio_svs(filename):
         # Check for SVS file
         try:
             desc0 = fh.directories[0].entries[IMAGE_DESCRIPTION].value()
-            if not desc0.startswith('Aperio'):
+            aperio_bytes = bytes('Aperio', 'utf-8')
+            if not desc0.startswith(aperio_bytes):
                 raise UnrecognizedFile
         except KeyError:
             raise UnrecognizedFile
@@ -482,7 +511,8 @@ def do_aperio_svs(filename):
         # Find and delete label
         for directory in fh.directories:
             lines = directory.entries[IMAGE_DESCRIPTION].value().splitlines()
-            if len(lines) >= 2 and lines[1].startswith('label '):
+            label_bytes = b'label '
+            if len(lines) >= 2 and lines[1].startswith(label_bytes):
                 directory.delete(expected_prefix=LZW_CLEARCODE)
                 break
         else:
