@@ -278,11 +278,12 @@ class MrxsFile(object):
         self._dat = RawConfigParser()
         self._dat.optionxform = str
         try:
-            with open(self._slidedatfile, 'rb') as fh:
+            with open(self._slidedatfile, 'rb') as fh_prewrapped:
+                fh = io.TextIOWrapper(fh_prewrapped)
                 self._have_bom = (fh.read(len(UTF8_BOM)) == UTF8_BOM)
                 if not self._have_bom:
                     fh.seek(0)
-                self._dat.readfp(fh)
+                self._dat.read_file(fh)
         except IOError:
             raise UnrecognizedFile
 
@@ -389,7 +390,10 @@ class MrxsFile(object):
     def _hier_keys_for_level(self, level):
         ret = []
         for k, _ in self._dat.items(MRXS_HIERARCHICAL):
-            if k == level.key_prefix or k.startswith(level.key_prefix + '_'):
+            k_bytes = bytes(k, 'utf-8')
+            level_key_prefix_bytes = bytes(level.key_prefix, 'utf-8')
+            level_key_prefix_underscore_bytes = bytes(level.key_prefix + '_', 'utf-8')
+            if k_bytes == level_key_prefix_bytes or k_bytes.startswith(level_key_prefix_underscore_bytes):
                 ret.append(k)
         return ret
 
@@ -428,12 +432,15 @@ class MrxsFile(object):
         self._dat.remove_option(section, key)
 
     def _write(self):
-        buf = StringIO()
+        buf = io.StringIO()
         self._dat.write(buf)
-        with open(self._slidedatfile, 'wb') as fh:
+        with open(self._slidedatfile, 'wb') as fh_prewrapped:
+            fh = io.TextIOWrapper(fh_prewrapped)
             if self._have_bom:
                 fh.write(UTF8_BOM)
-            fh.write(buf.getvalue().replace('\n', '\r\n'))
+            buf_replaced = buf.getvalue().replace('\n', '\r\n')
+            fh.write(buf_replaced)
+        fh.close()
 
     def delete_level(self, layer_name, level_name):
         level = self._levels[(layer_name, level_name)]
@@ -512,8 +519,10 @@ def do_aperio_svs(filename):
         for directory in fh.directories:
             lines = directory.entries[IMAGE_DESCRIPTION].value().splitlines()
             label_bytes = b'label '
-            if len(lines) >= 2 and lines[1].startswith(label_bytes):
-                directory.delete(expected_prefix=LZW_CLEARCODE)
+            if len(lines) >= 2:
+                line1_bytes = bytes(lines[1], 'utf-8')
+                if line1_bytes.startswith(label_bytes):
+                    directory.delete(expected_prefix=LZW_CLEARCODE)
                 break
         else:
             raise IOError("No label in SVS file")
