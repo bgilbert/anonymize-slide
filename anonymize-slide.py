@@ -21,15 +21,23 @@
 #  Foundation, Inc., 51 Franklin Street, Fifth Floor,
 #  Boston, MA 02110-1301 USA.
 #
+# Modified by Chaim Reach:
+# - updated to Python3
+# - added support for Ventana tiffs
+# - added option for importing as a python module.
 
-from __future__ import division
-from ConfigParser import RawConfigParser
-from cStringIO import StringIO
+
+from __future__ import division, print_function
+# from ConfigParser import RawConfigParser
+from configparser import RawConfigParser
+# from cStringIO import StringIO
+from io import StringIO
 from glob import glob
 from optparse import OptionParser
 import os
-import string
+# import string
 import struct
+import subprocess
 import sys
 
 PROG_DESCRIPTION = '''
@@ -39,6 +47,7 @@ PROG_VERSION = '1.1.1'
 DEBUG = False
 
 # TIFF types
+BYTE = 1
 ASCII = 2
 SHORT = 3
 LONG = 4
@@ -52,11 +61,13 @@ STRIP_OFFSETS = 273
 STRIP_BYTE_COUNTS = 279
 NDPI_MAGIC = 65420
 NDPI_SOURCELENS = 65421
+XMLPACKET = 700
 
 # Format headers
-LZW_CLEARCODE = '\x80'
-JPEG_SOI = '\xff\xd8'
-UTF8_BOM = '\xef\xbb\xbf'
+LZW_CLEARCODE = b'\x80'
+JPEG_SOI = b'\xff\xd8'
+# UTF8_BOM = '\xef\xbb\xbf'
+UTF8_BOM = '\ufeff'
 
 # MRXS
 MRXS_HIERARCHICAL = 'HIERARCHICAL'
@@ -67,15 +78,16 @@ class UnrecognizedFile(Exception):
     pass
 
 
-class TiffFile(file):
+class TiffFile():
     def __init__(self, path):
-        file.__init__(self, path, 'r+b')
+        # file.__init__(self, path, 'r+b')
+        self.file = open(path, 'r+b')
 
         # Check header, decide endianness
         endian = self.read(2)
-        if endian == 'II':
+        if endian == b'II':
             self._fmt_prefix = '<'
-        elif endian == 'MM':
+        elif endian == b'MM':
             self._fmt_prefix = '>'
         else:
             raise UnrecognizedFile
@@ -110,11 +122,26 @@ class TiffFile(file):
                 # the first directory is beyond 4 GB.
                 if NDPI_MAGIC in directory.entries:
                     if DEBUG:
-                        print 'Enabling NDPI mode.'
+                        print('Enabling NDPI mode.')
                     self._ndpi = True
             self.directories.append(directory)
         if not self.directories:
             raise IOError('No directories')
+
+    # TiffFile uses composition to pretend to be a file object for backwards compatibility.
+    def read(self, n=-1):
+        return self.file.read(n)
+    def write(self, s):
+        return self.file.write(s)
+    def seek(self, offset, whence=0):
+        return self.file.seek(offset, whence)
+    def tell(self):
+        return self.file.tell()
+    def __enter__(self):
+        return self
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.file.close()
+    # End of file code
 
     def _convert_format(self, fmt):
         # Format strings can have special characters:
@@ -124,11 +151,11 @@ class TiffFile(file):
         # Z: 32-bit unsigned on little TIFF, 64-bit unsigned on BigTIFF
         # D: 32-bit unsigned on little TIFF, 64-bit unsigned on BigTIFF/NDPI
         if self._bigtiff:
-            fmt = fmt.translate(string.maketrans('yYzZD', 'qQqQQ'))
+            fmt = fmt.translate(str.maketrans('yYzZD', 'qQqQQ'))
         elif self._ndpi:
-            fmt = fmt.translate(string.maketrans('yYzZD', 'hHiIQ'))
+            fmt = fmt.translate(str.maketrans('yYzZD', 'hHiIQ'))
         else:
-            fmt = fmt.translate(string.maketrans('yYzZD', 'hHiII'))
+            fmt = fmt.translate(str.maketrans('yYzZD', 'hHiII'))
         return self._fmt_prefix + fmt
 
     def fmt_size(self, fmt):
@@ -146,6 +173,7 @@ class TiffFile(file):
     def read_fmt(self, fmt, force_list=False):
         fmt = self._convert_format(fmt)
         vals = struct.unpack(fmt, self.read(struct.calcsize(fmt)))
+        # vals = tuple(self.read(struct.calcsize(fmt)*4))
         if len(vals) == 1 and not force_list:
             return vals[0]
         else:
@@ -180,18 +208,18 @@ class TiffDirectory(object):
         for offset, length in zip(offsets, lengths):
             offset = self._fh.near_pointer(self._out_pointer_offset, offset)
             if DEBUG:
-                print 'Zeroing', offset, 'for', length
+                print('Zeroing', offset, 'for', length)
             self._fh.seek(offset)
             if expected_prefix:
                 buf = self._fh.read(len(expected_prefix))
                 if buf != expected_prefix:
                     raise IOError('Unexpected data in image strip')
                 self._fh.seek(offset)
-            self._fh.write('\0' * length)
+            self._fh.write(b'\0' * length)
 
         # Remove directory
         if DEBUG:
-            print 'Deleting directory', self._number
+            print('Deleting directory', self._number)
         self._fh.seek(self._out_pointer_offset)
         out_pointer = self._fh.read_fmt('D')
         self._fh.seek(self._in_pointer_offset)
@@ -205,9 +233,12 @@ class TiffEntry(object):
                 fh.read_fmt('HHZZ')
         self._fh = fh
 
-    def value(self):
-        if self.type == ASCII:
+    def format_type(self):
+        if self.type == BYTE:
+            item_fmt = 'b'
+        elif self.type == ASCII:
             item_fmt = 'c'
+            # item_fmt = 's'
         elif self.type == SHORT:
             item_fmt = 'H'
         elif self.type == LONG:
@@ -220,8 +251,30 @@ class TiffEntry(object):
             item_fmt = 'd'
         else:
             raise ValueError('Unsupported type')
+        return item_fmt
+
+    def value(self):
+        # if self.type == BYTE:
+        #     item_fmt = 'b'
+        # elif self.type == ASCII:
+        #     item_fmt = 'c'
+        # elif self.type == SHORT:
+        #     item_fmt = 'H'
+        # elif self.type == LONG:
+        #     item_fmt = 'I'
+        # elif self.type == LONG8:
+        #     item_fmt = 'Q'
+        # elif self.type == FLOAT:
+        #     item_fmt = 'f'
+        # elif self.type == DOUBLE:
+        #     item_fmt = 'd'
+        # else:
+        #     raise ValueError('Unsupported type')
+
+        item_fmt = self.format_type()
 
         fmt = '%d%s' % (self.count, item_fmt)
+
         len = self._fh.fmt_size(fmt)
         if len <= self._fh.fmt_size('Z'):
             # Inline value
@@ -231,11 +284,41 @@ class TiffEntry(object):
             self._fh.seek(self._fh.near_pointer(self.start, self.value_offset))
         items = self._fh.read_fmt(fmt, force_list=True)
         if self.type == ASCII:
-            if items[-1] != '\0':
+            if items[-1] != b'\0':
                 raise ValueError('String not null-terminated')
-            return ''.join(items[:-1])
+            return b''.join(items[:-1])
         else:
             return items
+
+    def overwrite_entry(self, byte_string):
+        """Overwrites self.value with data and destroys the ENTIRE previous entry.
+        Extra space will be overwritten.
+
+        WARNING: Currently only supports BYTE and ASCII types."""
+        # TYPE = tif.directories[directory].entries[entry].type
+        # fmt = f"{tif.directories[directory].entries[entry].count}{self.format_type()}"
+        fmt = '%d%s' % (self.count, self.format_type())
+        # Hacky fix for strings
+        fmt = fmt.replace("c", "s")
+
+        # WARNING: Assumes entry contains a string. May fail if this function is extended to non-string types.
+        entry_ordinals = self.value()
+        old_value = "".join([chr(x) for x in entry_ordinals])
+        # The extra length that we'll need to overwrite with junk data.
+        null_pad = len(old_value) - len(byte_string)
+
+        # Write new value
+        self._fh.seek(self.value_offset)
+
+        if self.type == ASCII:
+            # ASCII uses nulls to divide substrings, so we pad with spaces instead.
+            new_value = byte_string + b" " * null_pad
+            self._fh.write_fmt(fmt, new_value)
+        elif self.type == BYTE:
+            new_value = byte_string + b"\0" * null_pad
+            self._fh.write_fmt(fmt, *new_value)
+        else:
+            raise ValueError('Unsupported type')
 
 
 class MrxsFile(object):
@@ -250,11 +333,13 @@ class MrxsFile(object):
         self._dat = RawConfigParser()
         self._dat.optionxform = str
         try:
-            with open(self._slidedatfile, 'rb') as fh:
+            # with open(self._slidedatfile, 'rb') as fh:
+            with open(self._slidedatfile, 'r') as fh:
                 self._have_bom = (fh.read(len(UTF8_BOM)) == UTF8_BOM)
                 if not self._have_bom:
                     fh.seek(0)
-                self._dat.readfp(fh)
+                # self._dat.readfp(fh)
+                self._dat.read_file(fh)
         except IOError:
             raise UnrecognizedFile
 
@@ -326,11 +411,13 @@ class MrxsFile(object):
             do_truncate = (fh.tell() == offset + length)
             if DEBUG:
                 if do_truncate:
-                    print 'Truncating', path, 'to', offset
+                    print('Truncating', path, 'to', offset)
                 else:
-                    print 'Zeroing', path, 'at', offset, 'for', length
+                    print('Zeroing', path, 'at', offset, 'for', length)
             fh.seek(offset)
             buf = fh.read(len(JPEG_SOI))
+            # print(buf)
+            # exit()
             if buf != JPEG_SOI:
                 raise IOError('Unexpected data in nonhier image')
             if do_truncate:
@@ -341,7 +428,7 @@ class MrxsFile(object):
 
     def _delete_index_record(self, record):
         if DEBUG:
-            print 'Deleting record', record
+            print('Deleting record', record)
         with open(self._indexfile, 'r+b') as fh:
             entries_to_move = len(self._level_list) - record - 1
             if entries_to_move == 0:
@@ -368,35 +455,35 @@ class MrxsFile(object):
     def _rename_section(self, old, new):
         if self._dat.has_section(old):
             if DEBUG:
-                print '[%s] -> [%s]' % (old, new)
+                print('[%s] -> [%s]' % (old, new))
             self._dat.add_section(new)
             for k, v in self._dat.items(old):
                 self._dat.set(new, k, v)
             self._dat.remove_section(old)
         elif DEBUG:
-            print '[%s] does not exist' % old
+            print('[%s] does not exist' % old)
 
     def _delete_section(self, section):
         if DEBUG:
-            print 'Deleting [%s]' % section
+            print('Deleting [%s]' % section)
         self._dat.remove_section(section)
 
     def _set_key(self, section, key, value):
         if DEBUG:
             prev = self._dat.get(section, key)
-            print '[%s] %s: %s -> %s' % (section, key, prev, value)
+            print('[%s] %s: %s -> %s' % (section, key, prev, value))
         self._dat.set(section, key, value)
 
     def _rename_key(self, section, old, new):
         if DEBUG:
-            print '[%s] %s -> %s' % (section, old, new)
+            print('[%s] %s -> %s' % (section, old, new))
         v = self._dat.get(section, old)
         self._dat.remove_option(section, old)
         self._dat.set(section, new, v)
 
     def _delete_key(self, section, key):
         if DEBUG:
-            print 'Deleting [%s] %s' % (section, key)
+            print('Deleting [%s] %s' % (section, key))
         self._dat.remove_option(section, key)
 
     def _write(self):
@@ -404,8 +491,8 @@ class MrxsFile(object):
         self._dat.write(buf)
         with open(self._slidedatfile, 'wb') as fh:
             if self._have_bom:
-                fh.write(UTF8_BOM)
-            fh.write(buf.getvalue().replace('\n', '\r\n'))
+                fh.write(UTF8_BOM.encode())
+            fh.write(buf.getvalue().replace('\n', '\r\n').encode())
 
     def delete_level(self, layer_name, level_name):
         level = self._levels[(layer_name, level_name)]
@@ -465,7 +552,7 @@ class MrxsNonHierLevel(object):
 
 def accept(filename, format):
     if DEBUG:
-        print filename + ':', format
+        print(filename + ':', format)
 
 
 def do_aperio_svs(filename):
@@ -473,7 +560,7 @@ def do_aperio_svs(filename):
         # Check for SVS file
         try:
             desc0 = fh.directories[0].entries[IMAGE_DESCRIPTION].value()
-            if not desc0.startswith('Aperio'):
+            if not desc0.startswith(b'Aperio'):
                 raise UnrecognizedFile
         except KeyError:
             raise UnrecognizedFile
@@ -482,7 +569,7 @@ def do_aperio_svs(filename):
         # Find and delete label
         for directory in fh.directories:
             lines = directory.entries[IMAGE_DESCRIPTION].value().splitlines()
-            if len(lines) >= 2 and lines[1].startswith('label '):
+            if len(lines) >= 2 and lines[1].startswith(b'label '):
                 directory.delete(expected_prefix=LZW_CLEARCODE)
                 break
         else:
@@ -512,12 +599,58 @@ def do_3dhistech_mrxs(filename):
     except KeyError:
         raise IOError('No label in MRXS file')
 
+# TODO-DONE incorporate the fix into the anonymization process
+def do_ventana_tif(filename):
+    with TiffFile(filename) as fh:
+        # Check for Ventana TIF file
+        try:
+            xml0 = subprocess.check_output(["tiffinfo", "-w", "-0", filename]).decode('utf-8')
+            # xml0 = fh.directories[0].entries[XMLPACKET].value()
+            if not "iScan" in xml0:
+                raise UnrecognizedFile
+
+        except subprocess.CalledProcessError:
+            raise UnrecognizedFile
+        accept(filename, 'SVS')
+
+        # Find and delete label
+        for directory in fh.directories:
+            lines = directory.entries[IMAGE_DESCRIPTION].value().splitlines()
+            if lines[0].startswith(b'Label_Image'):
+                # directory.delete(expected_prefix=LZW_CLEARCODE)
+                directory.delete()
+                break
+        else:
+            raise IOError("No label in TIF file")
+
+        # TODO-DONE handle ASCII type- s or c?
+        # Fix file
+        # We need to fully overwrite the old XMP tag data and add some new data as well.
+        # The writer also requires that the new value be of exactly the same size as the "value" allocated space in the image.
+        our_xmp = b"<iScan Magnification='40' ScanRes='0.25'></iScan>"
+        our_image_desc = b"<Ventana Hopkins Pathology Anonymized Format v1.0.>"
+        fh.directories[1].entries[XMLPACKET].overwrite_entry(our_xmp)
+        fh.directories[1].entries[IMAGE_DESCRIPTION].overwrite_entry(our_image_desc)
+
 
 format_handlers = [
+    do_ventana_tif,
     do_aperio_svs,
     do_hamamatsu_ndpi,
     do_3dhistech_mrxs,
 ]
+
+def anonymize_slide(filename):
+    """Anonymize a single slide."""
+    for handler in format_handlers:
+        try:
+            print(handler)
+            handler(filename)
+            break
+        except UnrecognizedFile:
+            pass
+    else:
+        raise IOError('Unrecognized file type')
 
 
 def _main():
@@ -542,19 +675,25 @@ def _main():
 
     exit_code = 0
     for filename in filenames:
+        print(filename)
         try:
-            for handler in format_handlers:
-                try:
-                    handler(filename)
-                    break
-                except UnrecognizedFile:
-                    pass
-            else:
-                raise IOError('Unrecognized file type')
-        except Exception, e:
+            # for handler in format_handlers:
+            #     try:
+            #         print(handler)
+            #         handler(filename)
+            #         break
+            #     except UnrecognizedFile:
+            #         pass
+            # else:
+            #     raise IOError('Unrecognized file type')
+            anonymize_slide(filename)
+        except Exception as e:
             if DEBUG:
                 raise
-            print >>sys.stderr, '%s: %s' % (filename, str(e))
+            # print >>sys.stderr, '%s: %s' % (filename, str(e))
+            print('%s: %s' % (filename, str(e)), file=sys.stderr)
+            # print(f"{filename}: {str(e)}", file=sys.stderr)
+            # print("test", file=sys.stderr)
             exit_code = 1
     sys.exit(exit_code)
 
