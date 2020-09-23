@@ -333,12 +333,10 @@ class MrxsFile(object):
         self._dat = RawConfigParser()
         self._dat.optionxform = str
         try:
-            # with open(self._slidedatfile, 'rb') as fh:
-            with open(self._slidedatfile, 'r') as fh:
+            with open(self._slidedatfile, 'r', encoding="utf-8-sig") as fh:
                 self._have_bom = (fh.read(len(UTF8_BOM)) == UTF8_BOM)
                 if not self._have_bom:
                     fh.seek(0)
-                # self._dat.readfp(fh)
                 self._dat.read_file(fh)
         except IOError:
             raise UnrecognizedFile
