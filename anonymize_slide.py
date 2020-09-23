@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 #
 #  anonymize-slide.py - Delete the label from a whole-slide image.
 #
@@ -555,7 +555,15 @@ def accept(filename, format):
         print(filename + ':', format)
 
 
+# TODO remove Filename from ImageDescription tags.
 def do_aperio_svs(filename):
+    def cleanse_filename(filename_block):
+        key, val = filename_block.split(" = ")
+        val = "X"
+        anon_block = " = ".join([key, val])
+        return anon_block
+
+    # Check file
     with TiffFile(filename) as fh:
         # Check for SVS file
         try:
@@ -566,14 +574,42 @@ def do_aperio_svs(filename):
             raise UnrecognizedFile
         accept(filename, 'SVS')
 
+    # Strip label
+    with TiffFile(filename) as fh:
         # Find and delete label
         for directory in fh.directories:
             lines = directory.entries[IMAGE_DESCRIPTION].value().splitlines()
             if len(lines) >= 2 and lines[1].startswith(b'label '):
-                directory.delete(expected_prefix=LZW_CLEARCODE)
+                # directory.delete(expected_prefix=LZW_CLEARCODE)
+                directory.delete()
+                print("Deleted label.")
                 break
         else:
-            raise IOError("No label in SVS file")
+            raise IOError("No label detected in SVS file")
+
+    # Strip macro
+    with TiffFile(filename) as fh:
+        # Find and delete label
+        for directory in fh.directories:
+            lines = directory.entries[IMAGE_DESCRIPTION].value().splitlines()
+            if len(lines) >= 2 and lines[1].startswith(b'macro '):
+                directory.delete()
+                print("Deleted macro.")
+                break
+        else:
+            raise IOError("No macro detected in SVS file")
+
+    # Remove filename from ImageDescription(s). Why is this even a thing.
+    with TiffFile(filename) as fh:
+        for directory in fh.directories:
+            img_desc = directory.entries[IMAGE_DESCRIPTION].value().decode()
+            if "Filename" in img_desc:
+                print("\n", img_desc)
+                desc_bits = img_desc.split("|")
+                purified_bits = [bit if "Filename" not in bit else cleanse_filename(bit) for bit in desc_bits]
+                clean_desc = "|".join(purified_bits).encode()
+                directory.entries[IMAGE_DESCRIPTION].overwrite_entry(clean_desc)
+                print("Stored filename overwritten")
 
 
 def do_hamamatsu_ndpi(filename):
